@@ -57,6 +57,7 @@ void executor::ex_clock_thd()
 	size_t iSwitchPeriod = sec_to_ticks(iTimeSlice);
 	size_t iDevPortion = (size_t)floor(((double)iSwitchPeriod) * fDevDonationLevel);
 	size_t iCpuRestingPortion = (size_t)floor(((double)iSwitchPeriod) * fCpuRestingLevel);
+	size_t iOneMinuteInMilliseconds = 1 * 60 * 1000;
 
 	//No point in bothering with less than 10 sec
 	if(iDevPortion < sec_to_ticks(10))
@@ -101,7 +102,7 @@ void executor::ex_clock_thd()
 		{
 			if (iSwitchPeriod > iDevPortion) 
 			{
-				std::this_thread::sleep_for(std::chrono::milliseconds(size_t(iTickTime)));
+				std::this_thread::sleep_for(std::chrono::milliseconds(iOneMinuteInMilliseconds));
 			}
 			else 
 			    push_event(ex_event(EV_SWITCH_POOL, dev_pool_id));
