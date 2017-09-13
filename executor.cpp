@@ -33,6 +33,7 @@
 #include "jconf.h"
 #include "console.h"
 #include "donate-level.h"
+#include "cpu-utilization.h"
 #include "webdesign.h"
 
 #ifdef _WIN32
@@ -53,8 +54,9 @@ void executor::push_timed_event(ex_event&& ev, size_t sec)
 
 void executor::ex_clock_thd()
 {
-	size_t iSwitchPeriod = sec_to_ticks(iDevDonatePeriod);
+	size_t iSwitchPeriod = sec_to_ticks(iTimeSlice);
 	size_t iDevPortion = (size_t)floor(((double)iSwitchPeriod) * fDevDonationLevel);
+	size_t iCpuRestingPortion = (size_t)floor(((double)iSwitchPeriod) * fCpuRestingLevel);
 
 	//No point in bothering with less than 10 sec
 	if(iDevPortion < sec_to_ticks(10))
@@ -86,18 +88,23 @@ void executor::ex_clock_thd()
 		}
 		lck.unlock();
 
-		if(iDevPortion == 0)
+		if(iDevPortion == 0 && iCpuRestingPortion == 0)
 			continue;
 
 		iSwitchPeriod--;
 		if(iSwitchPeriod == 0)
 		{
 			push_event(ex_event(EV_SWITCH_POOL, usr_pool_id));
-			iSwitchPeriod = sec_to_ticks(iDevDonatePeriod);
+			iSwitchPeriod = sec_to_ticks(iTimeSlice);
 		}
-		else if(iSwitchPeriod == iDevPortion)
+		else if(iSwitchPeriod == iDevPortion + iCpuRestingPortion)
 		{
-			push_event(ex_event(EV_SWITCH_POOL, dev_pool_id));
+			if (iSwitchPeriod > iDevPortion) 
+			{
+				std::this_thread::sleep_for(std::chrono::milliseconds(size_t(iTickTime)));
+			}
+			else 
+			    push_event(ex_event(EV_SWITCH_POOL, dev_pool_id));
 		}
 	}
 }
