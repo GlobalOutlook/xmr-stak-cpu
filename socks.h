@@ -6,6 +6,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#pragma comment(lib, "WS2_32.lib")
 
 inline void sock_init()
 {
@@ -79,9 +80,7 @@ inline void sock_close(SOCKET s)
 inline const char* sock_strerror(char* buf, size_t len)
 {
 	buf[0] = '\0';
-
 #if defined(__APPLE__) || defined(__FreeBSD__) || !defined(_GNU_SOURCE) || !defined(__GLIBC__)
-
 	strerror_r(errno, buf, len);
 	return buf;
 #else

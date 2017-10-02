@@ -48,6 +48,11 @@
 #include <openssl/err.h>
 #endif
 
+#if !defined(CONF_NO_TLS) && defined (_WIN32)
+#pragma comment(lib, "VC/libssl64MT.lib")
+#pragma comment(lib, "VC/libcrypto64MT.lib")
+#endif
+
 //Do a press any key for the windows folk. *insert any key joke here*
 #ifdef _WIN32
 void win_exit()
@@ -144,7 +149,8 @@ int main(int argc, char *argv[])
 	printer::inst()->print_str("-------------------------------------------------------------------\n");
 	printer::inst()->print_str( XMR_STAK_NAME" " XMR_STAK_VERSION " mining software, CPU Version.\n");
 	printer::inst()->print_str("Based on CPU mining code by wolf9466 (heavily optimized by fireice_uk).\n");
-	printer::inst()->print_str("Brought to you by fireice_uk and psychocrypt under GPLv3.\n\n");
+	printer::inst()->print_str("Brought to you by fireice_uk and psychocrypt under GPLv3.\n");
+	printer::inst()->print_str("Further tweaked by Dead2.\n\n");
 	char buffer[64];
 	snprintf(buffer, sizeof(buffer), "Configurable dev donation level is set to %.1f %%\n\n", fDevDonationLevel * 100.0);
 	printer::inst()->print_str(buffer);
@@ -152,6 +158,7 @@ int main(int argc, char *argv[])
 	printer::inst()->print_str("'h' - hashrate\n");
 	printer::inst()->print_str("'r' - results\n");
 	printer::inst()->print_str("'c' - connection\n");
+	printer::inst()->print_str("'q' - quit\n");
 	printer::inst()->print_str("-------------------------------------------------------------------\n");
 
 	if(strlen(jconf::inst()->GetOutputFile()) != 0)
@@ -177,6 +184,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'c':
 			executor::inst()->push_event(ex_event(EV_USR_CONNSTAT));
+			break;
+		case 'q':
+			exit(0);
 			break;
 		default:
 			break;

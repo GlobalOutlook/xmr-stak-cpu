@@ -34,7 +34,7 @@
 
 void thd_setaffinity(std::thread::native_handle_type h, uint64_t cpu_id)
 {
-	SetThreadAffinityMask(h, 1ULL << cpu_id);
+	SetThreadAffinityMask((HANDLE)h, 1ULL << cpu_id);
 }
 #else
 #include <pthread.h>
@@ -373,7 +373,14 @@ void minethd::pin_thd_affinity()
 #if defined(__APPLE__)
 	printer::inst()->print_msg(L1, "WARNING on MacOS thread affinity is only advisory.");
 #endif
+#if defined(__MINGW32__)
+    SetThreadAffinityMask(GetCurrentThread(), 1ULL << affinity);
+#else
 	thd_setaffinity(oWorkThd.native_handle(), affinity);
+#endif
+
+    // Make sure we return to the scheduler at least once before allocating memory.
+	std::this_thread::yield();
 }
 
 void minethd::work_main()
@@ -420,7 +427,7 @@ void minethd::work_main()
 
 		while(iGlobalJobNo.load(std::memory_order_relaxed) == iJobNo)
 		{
-			if ((iCount & 0xF) == 0) //Store stats every 16 hashes
+			if ((iCount & 0x1F) == 0) //Store stats every 32 hashes
 			{
 				using namespace std::chrono;
 				uint64_t iStamp = time_point_cast<milliseconds>(high_resolution_clock::now()).time_since_epoch().count();
@@ -520,7 +527,7 @@ void minethd::double_work_main()
 
 		while (iGlobalJobNo.load(std::memory_order_relaxed) == iJobNo)
 		{
-			if ((iCount & 0x7) == 0) //Store stats every 16 hashes
+			if ((iCount & 0xF) == 0) //Store stats every 32 hashes
 			{
 				using namespace std::chrono;
 				uint64_t iStamp = time_point_cast<milliseconds>(high_resolution_clock::now()).time_since_epoch().count();

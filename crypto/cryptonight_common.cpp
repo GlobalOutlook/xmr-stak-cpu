@@ -21,19 +21,10 @@
   *
   */
 
-extern "C"
-{
-#include "c_groestl.h"
-#include "c_blake256.h"
-#include "c_jh.h"
-#include "c_skein.h"
-}
-#include "cryptonight.h"
-#include "cryptonight_aesni.h"
 #include <stdio.h>
 #include <stdlib.h>
 
-#ifdef __GNUC__
+#if defined(__GNUC__)
 #include <mm_malloc.h>
 #else
 #include <malloc.h>
@@ -51,20 +42,31 @@ extern "C"
 #include <string.h>
 #endif // _WIN32
 
-void do_blake_hash(const void* input, size_t len, char* output) {
+extern "C"
+{
+#include "c_groestl.h"
+#include "c_blake256.h"
+#include "c_jh.h"
+#include "c_skein.h"
+}
+#include "../common.h"
+#include "cryptonight.h"
+#include "cryptonight_aesni.h"
+
+FLATTEN3 void do_blake_hash(const void* input, size_t len, char* output) {
 	blake256_hash((uint8_t*)output, (const uint8_t*)input, len);
 }
 
-void do_groestl_hash(const void* input, size_t len, char* output) {
+FLATTEN3 void do_groestl_hash(const void* input, size_t len, char* output) {
 	groestl((const uint8_t*)input, len * 8, (uint8_t*)output);
 }
 
-void do_jh_hash(const void* input, size_t len, char* output) {
+FLATTEN3 void do_jh_hash(const void* input, size_t len, char* output) {
 	jh_hash(32 * 8, (const uint8_t*)input, 8 * len, (uint8_t*)output);
 }
 
-void do_skein_hash(const void* input, size_t len, char* output) {
-	skein_hash(8 * 32, (const uint8_t*)input, 8 * len, (uint8_t*)output);
+FLATTEN3 void do_skein_hash(const void* input, size_t len, char* output) {
+	xmr_skein((const uint8_t*)input, (uint8_t*)output);
 }
 
 void (* const extra_hashes[4])(const void *, size_t, char *) = {do_blake_hash, do_groestl_hash, do_jh_hash, do_skein_hash};

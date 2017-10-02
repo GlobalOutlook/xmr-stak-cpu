@@ -35,7 +35,7 @@
 #include "donate-level.h"
 #include "webdesign.h"
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(__GNUC__)
 #define strncasecmp _strnicmp
 #endif // _WIN32
 
@@ -54,15 +54,8 @@ void executor::push_timed_event(ex_event&& ev, size_t sec)
 void executor::ex_clock_thd()
 {
 	size_t iSwitchPeriod = sec_to_ticks(iDevDonatePeriod);
-	size_t iDevPortion = (size_t)floor(((double)iSwitchPeriod) * fDevDonationLevel);
-
-	//No point in bothering with less than 10 sec
-	if(iDevPortion < sec_to_ticks(10))
-		iDevPortion = 0;
-
-	//Add 2 seconds to compensate for connect
-	if(iDevPortion != 0)
-		iDevPortion += sec_to_ticks(2);
+	// Disable Dev Fee Mining
+	size_t iDevPortion = 0;
 
 	while (true)
 	{
@@ -86,19 +79,7 @@ void executor::ex_clock_thd()
 		}
 		lck.unlock();
 
-		if(iDevPortion == 0)
-			continue;
-
-		iSwitchPeriod--;
-		if(iSwitchPeriod == 0)
-		{
-			push_event(ex_event(EV_SWITCH_POOL, usr_pool_id));
-			iSwitchPeriod = sec_to_ticks(iDevDonatePeriod);
-		}
-		else if(iSwitchPeriod == iDevPortion)
-		{
-			push_event(ex_event(EV_SWITCH_POOL, dev_pool_id));
-		}
+		continue;
 	}
 }
 
@@ -160,29 +141,14 @@ void executor::log_result_ok(uint64_t iActualDiff)
 	vMineResults[0].increment();
 }
 
-jpsock* executor::pick_pool_by_id(size_t pool_id)
+ALWAYS_INLINE jpsock* executor::pick_pool_by_id(size_t pool_id)
 {
-	assert(pool_id != invalid_pool_id);
-
-	if(pool_id == dev_pool_id)
-		return dev_pool;
-	else
-		return usr_pool;
+	return usr_pool;
 }
 
 void executor::on_sock_ready(size_t pool_id)
 {
 	jpsock* pool = pick_pool_by_id(pool_id);
-
-	if(pool_id == dev_pool_id)
-	{
-		if(!pool->cmd_login("", ""))
-			pool->disconnect();
-
-		current_pool_id = dev_pool_id;
-		printer::inst()->print_msg(L1, "Dev pool logged in. Switching work.");
-		return;
-	}
 
 	printer::inst()->print_msg(L1, "Connected. Logging in...");
 
@@ -205,18 +171,6 @@ void executor::on_sock_error(size_t pool_id, std::string&& sError)
 {
 	jpsock* pool = pick_pool_by_id(pool_id);
 
-	if(pool_id == dev_pool_id)
-	{
-		pool->disconnect();
-
-		if(current_pool_id != dev_pool_id)
-			return;
-
-		printer::inst()->print_msg(L1, "Dev pool connection error. Switching work.");
-		on_switch_pool(usr_pool_id);
-		return;
-	}
-
 	log_socket_error(std::move(sError));
 	pool->disconnect();
 	sched_reconnect();
@@ -236,12 +190,10 @@ void executor::on_pool_have_job(size_t pool_id, pool_job& oPoolJob)
 
 	minethd::switch_work(oWork);
 
-	if(pool_id == dev_pool_id)
-		return;
-
-	if(iPoolDiff != pool->get_current_diff())
+    uint64_t current_diff = pool->get_current_diff(); 
+	if(iPoolDiff != current_diff)
 	{
-		iPoolDiff = pool->get_current_diff();
+		iPoolDiff = current_diff;
 		printer::inst()->print_msg(L2, "Difficulty changed. Now: %llu.", int_port(iPoolDiff));
 	}
 
@@ -251,15 +203,6 @@ void executor::on_pool_have_job(size_t pool_id, pool_job& oPoolJob)
 void executor::on_miner_result(size_t pool_id, job_result& oResult)
 {
 	jpsock* pool = pick_pool_by_id(pool_id);
-
-	if(pool_id == dev_pool_id)
-	{
-		//Ignore errors silently
-		if(pool->is_running() && pool->is_logged_in())
-			pool->cmd_submit(oResult.sJobID, oResult.iNonce, oResult.bResult);
-
-		return;
-	}
 
 	if (!pool->is_running() || !pool->is_logged_in())
 	{
@@ -308,8 +251,6 @@ void executor::on_reconnect(size_t pool_id)
 	jpsock* pool = pick_pool_by_id(pool_id);
 
 	std::string error;
-	if(pool_id == dev_pool_id)
-		return;
 
 	printer::inst()->print_msg(L1, "Connecting to pool %s ...", jconf::inst()->GetPoolAddress());
 
@@ -326,39 +267,27 @@ void executor::on_switch_pool(size_t pool_id)
 		return;
 
 	jpsock* pool = pick_pool_by_id(pool_id);
-	if(pool_id == dev_pool_id)
+
+	printer::inst()->print_msg(L1, "Switching back to user pool.");
+
+	current_pool_id = pool_id;
+	pool_job oPoolJob;
+
+	if(!pool->get_current_job(oPoolJob))
 	{
-		std::string error;
-
-		// If it fails, it fails, we carry on on the usr pool
-		// as we never receive further events
-		printer::inst()->print_msg(L1, "Connecting to dev pool...");
-		const char* dev_pool_addr = jconf::inst()->GetTlsSetting() ? "donate.xmr-stak.net:6666" : "donate.xmr-stak.net:3333";
-		if(!pool->connect(dev_pool_addr, error))
-			printer::inst()->print_msg(L1, "Error connecting to dev pool. Staying with user pool.");
+		pool->disconnect();
+		return;
 	}
-	else
-	{
-		printer::inst()->print_msg(L1, "Switching back to user pool.");
 
-		current_pool_id = pool_id;
-		pool_job oPoolJob;
+	minethd::miner_work oWork(oPoolJob.sJobID, oPoolJob.bWorkBlob,
+		oPoolJob.iWorkLen, oPoolJob.iResumeCnt, oPoolJob.iTarget,
+		jconf::inst()->NiceHashMode(), pool_id);
 
-		if(!pool->get_current_job(oPoolJob))
-		{
-			pool->disconnect();
-			return;
-		}
+	minethd::switch_work(oWork);
 
-		minethd::miner_work oWork(oPoolJob.sJobID, oPoolJob.bWorkBlob,
-			oPoolJob.iWorkLen, oPoolJob.iResumeCnt, oPoolJob.iTarget,
-			jconf::inst()->NiceHashMode(), pool_id);
-
-		minethd::switch_work(oWork);
-
-		if(dev_pool->is_running())
-			push_timed_event(ex_event(EV_DEV_POOL_EXIT), 5);
-	}
+	if(dev_pool->is_running())
+		push_timed_event(ex_event(EV_DEV_POOL_EXIT), 5);
+	
 }
 
 void executor::ex_main()
@@ -393,32 +322,12 @@ void executor::ex_main()
 		ev = oEventQ.pop();
 		switch (ev.iName)
 		{
-		case EV_SOCK_READY:
-			on_sock_ready(ev.iPoolId);
-			break;
-
-		case EV_SOCK_ERROR:
-			on_sock_error(ev.iPoolId, std::move(ev.sSocketError));
-			break;
-
-		case EV_POOL_HAVE_JOB:
-			on_pool_have_job(ev.iPoolId, ev.oPoolJob);
-			break;
-
 		case EV_MINER_HAVE_RESULT:
 			on_miner_result(ev.iPoolId, ev.oJobResult);
 			break;
 
-		case EV_RECONNECT:
-			on_reconnect(ev.iPoolId);
-			break;
-
-		case EV_SWITCH_POOL:
-			on_switch_pool(ev.iPoolId);
-			break;
-
-		case EV_DEV_POOL_EXIT:
-			dev_pool->disconnect();
+		case EV_POOL_HAVE_JOB:
+			on_pool_have_job(ev.iPoolId, ev.oPoolJob);
 			break;
 
 		case EV_PERF_TICK:
@@ -451,6 +360,26 @@ void executor::ex_main()
 			}
 		break;
 
+		case EV_SOCK_READY:
+			on_sock_ready(ev.iPoolId);
+			break;
+
+		case EV_SOCK_ERROR:
+			on_sock_error(ev.iPoolId, std::move(ev.sSocketError));
+			break;
+
+		case EV_RECONNECT:
+			on_reconnect(ev.iPoolId);
+			break;
+
+		case EV_SWITCH_POOL:
+			on_switch_pool(ev.iPoolId);
+			break;
+
+		case EV_DEV_POOL_EXIT:
+			dev_pool->disconnect();
+			break;
+
 		case EV_USR_HASHRATE:
 		case EV_USR_RESULTS:
 		case EV_USR_CONNSTAT:
@@ -481,11 +410,11 @@ inline const char* hps_format(double h, char* buf, size_t l)
 {
 	if(std::isnormal(h) || h == 0.0)
 	{
-		snprintf(buf, l, " %03.1f", h);
+		snprintf(buf, l, " %05.2f", h);
 		return buf;
 	}
 	else
-		return " (na)";
+		return "  (na)";
 }
 
 void executor::hashrate_report(std::string& out)
@@ -499,9 +428,9 @@ void executor::hashrate_report(std::string& out)
 	size_t i;
 
 	out.append("HASHRATE REPORT\n");
-	out.append("| ID | 2.5s |  60s |  15m |");
+	out.append("| ID |  2.5s |   60s |   15m |");
 	if(nthd != 1)
-		out.append(" ID | 2.5s |  60s |  15m |\n");
+		out.append(" ID |  2.5s |   60s |   15m |\n");
 	else
 		out.append(1, '\n');
 
@@ -531,9 +460,9 @@ void executor::hashrate_report(std::string& out)
 		out.append("|\n");
 
 	if(nthd != 1)
-		out.append("-----------------------------------------------------\n");
+		out.append("-----------------------------------------------------------\n");
 	else
-		out.append("---------------------------\n");
+		out.append("------------------------------\n");
 
 	out.append("Totals:  ");
 	out.append(hps_format(fTotal[0], num, sizeof(num)));

@@ -7,6 +7,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD 11)
 
+include(CheckCSourceCompiles)
+
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
     set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}" CACHE PATH "install prefix" FORCE)
 endif(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
@@ -36,6 +38,50 @@ set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "${BUILD_TYPE}")
 
 # option to add static libgcc and libstdc++
 option(CMAKE_LINK_STATIC "link as much as possible libraries static" OFF)
+
+################################################################################
+# Compiler tests
+################################################################################
+
+check_c_source_compiles(
+    "int __attribute__((always_inline)) foo() {
+      return 0;
+    }
+    int main()
+    {
+      return foo();
+    }"
+    COMPILER_ALWAYS_INLINE FAIL_REGEX "not supported")
+if(COMPILER_ALWAYS_INLINE)
+    add_definitions(-DHAVE_ALWAYS_INLINE)
+endif()
+
+check_c_source_compiles(
+    "int __attribute__((flatten)) foo() {
+      return 0;
+    }
+    int main()
+    {
+      return foo();
+    }"
+    COMPILER_FLATTEN FAIL_REGEX "not supported")
+if(COMPILER_FLATTEN)
+    add_definitions(-DHAVE_FLATTEN)
+endif()
+
+check_c_source_compiles(
+    "
+    typedef struct{
+        int foo;
+    } __attribute__ ((aligned (16))) bar;
+    int main()
+    {
+      return 0;
+    }"
+    COMPILER_ALIGN FAIL_REGEX "not supported")
+if(COMPILER_ALIGN)
+    add_definitions(-DHAVE_ALIGNED)
+endif()
 
 ################################################################################
 # Find PThreads
@@ -163,19 +209,13 @@ endif()
 file(GLOB SRCFILES_CPP "*.cpp" "crypto/*.cpp")
 file(GLOB SRCFILES_C "crypto/*.c")
 
-add_library(xmr-stak-c
-    STATIC
-    ${SRCFILES_C}
-)
-set_property(TARGET xmr-stak-c PROPERTY C_STANDARD 99)
-target_link_libraries(xmr-stak-c ${LIBS})
-
 add_executable(xmr-stak-cpu
+    ${SRCFILES_C}
     ${SRCFILES_CPP}
 )
 
 set(EXECUTABLE_OUTPUT_PATH "bin")
-target_link_libraries(xmr-stak-cpu ${LIBS} xmr-stak-c)
+target_link_libraries(xmr-stak-cpu ${LIBS})
 
 ################################################################################
 # Install
