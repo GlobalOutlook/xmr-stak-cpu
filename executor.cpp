@@ -197,8 +197,8 @@ void executor::on_pool_have_job(size_t pool_id, pool_job& oPoolJob)
 		printer::inst()->print_msg(L2, "Difficulty changed. Now: %llu.", int_port(iPoolDiff));
 	}
 
-	std::this_thread::sleep_for(std::chrono::milliseconds(size_t(iTickTime)));
-	printer::inst()->print_msg(L3, "New block detected. And paused iTickTime");
+	std::this_thread::sleep_for(std::chrono::milliseconds(size_t(iTickTime * 4)));
+	printer::inst()->print_msg(L3, "New block detected. And paused iTickTime * 4");
 }
 
 void executor::on_miner_result(size_t pool_id, job_result& oResult)
